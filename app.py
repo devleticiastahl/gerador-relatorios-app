@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import io
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import cm
 
 st.set_page_config(page_title="Relatórios Gerenciais de Clientes", layout="wide")
 
@@ -72,43 +75,54 @@ if eventos_file and vendas_file:
                                             'Lucro Bruto': 'R$ {:,.2f}', 
                                             'Comissão Total': 'R$ {:,.2f}'}), use_container_width=True)
 
-    # Gráfico de Receita por Cliente
-    import plotly.express as px
-    fig = px.bar(clientes_df.head(10), 
-                 x='empresa_cliente', y='Receita Total',
-                 title='Top 10 Clientes por Receita',
-                 labels={'empresa_cliente': 'Cliente'},
-                 text_auto='.2s')
-    st.plotly_chart(fig, use_container_width=True)
+    # Geração do PDF
+    st.header("Exportação do Relatório")
 
-    # Visão de produtos
-    st.header("Análise de Produtos Vendidos")
-    produtos_df = df.groupby('produto').agg({
-        'id_venda': 'count',
-        'receita_total': 'sum'
-    }).reset_index().rename(columns={'id_venda': 'Qtd Vendas'})
+    def gerar_pdf():
+        buffer = io.BytesIO()
+        c = canvas.Canvas(buffer, pagesize=A4)
+        largura, altura = A4
+        margem = 2 * cm
+        y = altura - margem
 
-    produtos_df = produtos_df.sort_values('receita_total', ascending=False)
+        c.setFont("Helvetica-Bold", 16)
+        c.drawString(margem, y, "Relatório Gerencial de Clientes")
+        y -= 2*cm
 
-    st.dataframe(produtos_df.style.format({'receita_total': 'R$ {:,.2f}'}), use_container_width=True)
+        c.setFont("Helvetica", 12)
+        c.drawString(margem, y, f"Receita Total: R$ {receita_total:,.2f}")
+        y -= 0.7*cm
+        c.drawString(margem, y, f"Lucro Bruto: R$ {lucro_total:,.2f}")
+        y -= 0.7*cm
+        c.drawString(margem, y, f"Comissão Total: R$ {comissao_total:,.2f}")
+        y -= 0.7*cm
+        c.drawString(margem, y, f"Eventos Realizados: {num_eventos}")
+        y -= 0.7*cm
+        c.drawString(margem, y, f"Clientes Ativos: {num_clientes}")
+        y -= 1*cm
 
-    fig_prod = px.bar(produtos_df.head(10), 
-                      x='produto', y='receita_total',
-                      title='Top 10 Produtos por Receita',
-                      labels={'produto': 'Produto'},
-                      text_auto='.2s')
-    st.plotly_chart(fig_prod, use_container_width=True)
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(margem, y, "Top 5 Clientes:")
+        y -= 0.7*cm
 
-    # Visão temporal
-    st.header("Evolução Mensal")
-    df['mes_faturamento'] = df['data_faturamento'].dt.to_period('M').astype(str)
-    mensal = df.groupby('mes_faturamento')['receita_total'].sum().reset_index()
+        top_clientes = clientes_df.head(5)
+        c.setFont("Helvetica", 11)
+        for index, row in top_clientes.iterrows():
+            texto = f"{row['empresa_cliente']}: R$ {row['Receita Total']:,.2f}"
+            c.drawString(margem, y, texto)
+            y -= 0.6*cm
+            if y < 3*cm:
+                c.showPage()
+                y = altura - margem
 
-    fig_mensal = px.line(mensal, x='mes_faturamento', y='receita_total',
-                         markers=True,
-                         labels={'mes_faturamento': 'Mês', 'receita_total': 'Receita'},
-                         title='Receita Mensal')
-    st.plotly_chart(fig_mensal, use_container_width=True)
+        c.showPage()
+        c.save()
+        buffer.seek(0)
+        return buffer
+
+    if st.button("📄 Exportar Relatório em PDF"):
+        pdf_buffer = gerar_pdf()
+        st.download_button("⬇️ Baixar PDF", data=pdf_buffer, file_name="relatorio_clientes.pdf", mime="application/pdf")
 
 else:
     st.warning("⚠️ Por favor, faça upload dos dois arquivos para iniciar a análise.")
